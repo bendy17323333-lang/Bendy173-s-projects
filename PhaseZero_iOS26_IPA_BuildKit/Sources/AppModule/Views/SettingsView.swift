@@ -1,0 +1,277 @@
+import SwiftUI
+
+struct SettingsView: View {
+    @ObservedObject var model: GameViewModel
+    @ObservedObject private var settings: SettingsStore
+    @ObservedObject private var director: AIDirector
+    @ObservedObject private var performance: PerformanceGovernor
+    @ObservedObject private var motion: MotionAimService
+    @Environment(\.dismiss) private var dismiss
+
+    init(model: GameViewModel) {
+        self.model = model
+        self._settings = ObservedObject(wrappedValue: model.settings)
+        self._director = ObservedObject(wrappedValue: model.aiDirector)
+        self._performance = ObservedObject(wrappedValue: model.performance)
+        self._motion = ObservedObject(wrappedValue: model.motionAim)
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 285), spacing: 16)], spacing: 16) {
+                    spectaclePanel
+                    feedbackPanel
+                    aimPanel
+                    performancePanel
+                    aiPanel
+                    systemPanel
+                }
+                .padding(20)
+            }
+            .navigationTitle("系统调校")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { dismiss() }
+                        .buttonStyle(.glassProminent)
+                }
+            }
+        }
+        .presentationSizing(.page)
+    }
+
+    private var spectaclePanel: some View {
+        GlassPanel(tint: .pink, cornerRadius: 28, padding: 18) {
+            VStack(alignment: .leading, spacing: 15) {
+                HStack(alignment: .center, spacing: 12) {
+                    ZStack {
+                        Circle()
+                            .fill(.black.opacity(0.08))
+                            .glassEffect(.regular.tint(.pink.opacity(0.16)), in: Circle())
+                        Image(systemName: "sparkles.rectangle.stack.fill")
+                            .font(.title2.weight(.black))
+                            .foregroundStyle(.pink.gradient)
+                            .shadow(color: .pink.opacity(0.6), radius: 10)
+                    }
+                    .frame(width: 50, height: 50)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("SPECTACLE ENGINE")
+                            .font(.system(size: 9, weight: .black, design: .monospaced))
+                            .tracking(2.0)
+                            .foregroundStyle(.pink)
+                        Text("演出强度")
+                            .font(.headline.weight(.black))
+                    }
+                    Spacer()
+                    Text("×\(settings.spectaclePreset.nativeFXScale, specifier: "%.2f")")
+                        .font(.title3.weight(.black))
+                        .monospacedDigit()
+                        .foregroundStyle(.pink)
+                }
+
+                Picker("演出强度", selection: $settings.spectaclePreset) {
+                    ForEach(SpectaclePreset.allCases) { preset in
+                        Text(preset.title).tag(preset)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                Text(settings.spectaclePreset.description)
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.72))
+                    .lineSpacing(3)
+
+                Toggle("设备姿态驱动玻璃景深", isOn: $settings.interfaceParallaxEnabled)
+                    .disabled(!motion.isSupported)
+
+                HStack(spacing: 10) {
+                    spectacleMetric("NATIVE FX", value: "\(Int(settings.spectaclePreset.nativeFXScale * 100))%", tint: .pink)
+                    spectacleMetric("PARTICLES", value: "\(Int(settings.spectaclePreset.particleMultiplier * 100))%", tint: .cyan)
+                    spectacleMetric("TILT", value: settings.interfaceParallaxEnabled ? "LIVE" : "OFF", tint: .mint)
+                }
+
+                if settings.spectaclePreset == .unhinged {
+                    Label("失控模式会优先保留全屏冲击、玻璃形变与粒子密度；性能调度器仍会在高温时踩刹车。芯片有尊严，但没有表决权。", systemImage: "bolt.horizontal.circle.fill")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                }
+            }
+        }
+    }
+
+    private var feedbackPanel: some View {
+        GlassPanel(tint: .cyan, cornerRadius: 24, padding: 18) {
+            VStack(alignment: .leading, spacing: 15) {
+                settingsHeader("游戏反馈", icon: "waveform.path")
+                Toggle("声音", isOn: $settings.soundEnabled)
+                Toggle("触觉反馈", isOn: $settings.hapticsEnabled)
+                HStack {
+                    Text(model.haptics.supportsAdvancedHaptics ? "Core Haptics 波形" : "UIKit 反馈兜底")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("测试") {
+                        model.haptics.play("overdrive", enabled: true)
+                    }
+                    .buttonStyle(.glass)
+                    .controlSize(.small)
+                }
+            }
+        }
+    }
+
+    private var aimPanel: some View {
+        GlassPanel(tint: .mint, cornerRadius: 24, padding: 18) {
+            VStack(alignment: .leading, spacing: 15) {
+                settingsHeader("辅助瞄准", icon: "scope")
+                Picker("软锁强度", selection: $settings.aimAssist) {
+                    ForEach(AimAssistPreset.allCases) { preset in
+                        Text(preset.title).tag(preset)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                Toggle("陀螺仪精细修正", isOn: $settings.motionAimEnabled)
+                    .disabled(!motion.isSupported)
+
+                if settings.motionAimEnabled {
+                    LabeledContent("陀螺灵敏度") {
+                        Slider(value: $settings.motionSensitivity, in: 0.25...2.5)
+                            .frame(width: 145)
+                    }
+                    Toggle("反转陀螺方向", isOn: $settings.invertMotion)
+                    Button {
+                        model.recenterMotionAim()
+                    } label: {
+                        Label("重新归零", systemImage: "scope")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.glass)
+                }
+
+                Toggle("反转摇杆 Y 轴", isOn: $settings.invertAimY)
+                Text("陀螺仪只负责细微转向，右摇杆或触控仍决定主要方向。它不是让玩家把 iPad 当方向盘甩。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var performancePanel: some View {
+        GlassPanel(tint: .orange, cornerRadius: 24, padding: 18) {
+            VStack(alignment: .leading, spacing: 15) {
+                settingsHeader("显示与性能", icon: "gauge.with.dots.needle.67percent")
+                Picker("渲染", selection: $settings.renderProfile) {
+                    ForEach(RenderProfile.allCases) { profile in
+                        Text(profile.title).tag(profile)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                LabeledContent("触控 UI 透明度") {
+                    Slider(value: $settings.touchOpacity, in: 0.28...0.90)
+                        .frame(width: 145)
+                }
+                Toggle("连接手柄时仍显示触控区", isOn: $settings.showTouchWithController)
+                Toggle("游戏中显示性能状态", isOn: $settings.showPerformanceHUD)
+
+                Divider().opacity(0.22)
+                LabeledContent("实时帧率") {
+                    Text("\(Int(performance.snapshot.fps.rounded())) / \(performance.snapshot.targetFPS) FPS")
+                        .monospacedDigit()
+                }
+                LabeledContent("内部倍率") {
+                    Text("×\(performance.snapshot.renderScale, specifier: "%.2f")")
+                        .monospacedDigit()
+                }
+                LabeledContent("粒子预算") {
+                    Text("\(Int(performance.snapshot.particleScale * settings.spectaclePreset.particleMultiplier * 100))%")
+                        .monospacedDigit()
+                }
+                LabeledContent("热状态") {
+                    Text(performance.snapshot.thermalLabel)
+                        .foregroundStyle(performance.snapshot.lowPower ? .orange : .secondary)
+                }
+            }
+        }
+    }
+
+    private var aiPanel: some View {
+        GlassPanel(tint: .purple, cornerRadius: 24, padding: 18) {
+            VStack(alignment: .leading, spacing: 14) {
+                settingsHeader("相位导演", icon: "brain.head.profile")
+                Toggle("使用设备端 AI 简报", isOn: $settings.aiDirectorEnabled)
+                HStack(alignment: .top, spacing: 9) {
+                    Image(systemName: director.availability.isAvailable ? "checkmark.circle.fill" : "arrow.trianglehead.2.clockwise.rotate.90")
+                        .foregroundStyle(director.availability.isAvailable ? .mint : .orange)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(director.availability.title)
+                            .font(.caption.weight(.bold))
+                        Text(director.availability.detail)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Text("AI 只生成简报和战后点评。每日协议、数值和掉落仍由确定性规则决定，免得语言模型临时发明一把伤害九千的行政许可证。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var systemPanel: some View {
+        GlassPanel(tint: .blue, cornerRadius: 24, padding: 18) {
+            VStack(alignment: .leading, spacing: 12) {
+                settingsHeader("系统适配", icon: "apple.logo")
+                LabeledContent("当前系统") {
+                    Text("iOS \(ProcessInfo.processInfo.operatingSystemVersionString)")
+                        .foregroundStyle(.secondary)
+                }
+                LabeledContent("玻璃配置") {
+                    Text(PlatformGlassProfile.displayName)
+                        .foregroundStyle(.secondary)
+                }
+                LabeledContent("屏幕刷新上限") {
+                    Text("\(performance.maximumRefreshRate) Hz")
+                        .foregroundStyle(.secondary)
+                }
+                LabeledContent("姿态景深") {
+                    Text(motion.statusText)
+                        .foregroundStyle(motion.isAmbientActive ? .mint : .secondary)
+                }
+                Button {
+                    model.showSystemLab = true
+                    dismiss()
+                } label: {
+                    Label("打开系统实验室", systemImage: "cpu")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.glassProminent)
+                .tint(.blue)
+            }
+        }
+    }
+
+    private func spectacleMetric(_ title: String, value: String, tint: Color) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.system(size: 7, weight: .black, design: .monospaced))
+                .tracking(1.0)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.caption2.weight(.black))
+                .monospacedDigit()
+                .foregroundStyle(tint)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(.black.opacity(0.08), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+    }
+
+    private func settingsHeader(_ title: String, icon: String) -> some View {
+        Label(title, systemImage: icon)
+            .font(.headline.weight(.bold))
+    }
+}
