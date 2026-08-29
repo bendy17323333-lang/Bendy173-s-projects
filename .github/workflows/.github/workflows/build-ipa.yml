@@ -1,0 +1,63 @@
+name: Build unsigned IPA
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Select Xcode 26
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for app in \
+            /Applications/Xcode_26.6.app \
+            /Applications/Xcode_26.5.app \
+            /Applications/Xcode_26.4.1.app
+          do
+            if [[ -d "$app" ]]; then
+              sudo xcode-select -s "$app/Contents/Developer"
+              break
+            fi
+          done
+
+          xcodebuild -version
+          xcodebuild -showsdks
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Find and build Phase Zero
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          SCRIPT="$(find . -type f -path '*/Scripts/build_unsigned_ipa.sh' -print -quit)"
+
+          if [[ -z "$SCRIPT" ]]; then
+            echo "::error::没有找到 Scripts/build_unsigned_ipa.sh。请上传解压后的构建包，而不是只上传 ZIP。"
+            exit 1
+          fi
+
+          echo "Using build script: $SCRIPT"
+          bash "$SCRIPT"
+
+      - name: Upload IPA and build log
+        uses: actions/upload-artifact@v4
+        with:
+          name: PhaseZero-iOS26-IPA
+          path: |
+            **/dist/*.ipa
+            **/build/xcodebuild.log
+          if-no-files-found: error
+          retention-days: 14
